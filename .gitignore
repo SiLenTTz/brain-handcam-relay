@@ -1,0 +1,10 @@
+node_modules/
+*.log
+.DS_Store
+.env
+.env.*
+!.env.example
+*.pid
+.idea/
+.vscode/
+scripts/audit-patterns.local

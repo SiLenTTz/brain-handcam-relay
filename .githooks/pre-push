@@ -1,0 +1,3 @@
+#!/bin/sh
+# pre-push: Syntax-Check und Tests müssen grün sein, sonst kein Push
+node --check server.js && npm test

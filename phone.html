@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>handcam</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:#04120f; color:#dff3ee; font:15px/1.5 -apple-system,system-ui,sans-serif;
+         height:100dvh; display:flex; flex-direction:column; touch-action:manipulation; }
+  header { padding:10px 14px; display:flex; justify-content:space-between; align-items:center;
+           border-bottom:1px solid #14484f; }
+  header b { letter-spacing:.18em; font-size:13px; color:#8ff0e4; }
+  #dot { font-size:12px; padding:3px 10px; border-radius:99px; background:#3a2a00; color:#ffd27a; }
+  #dot.ok { background:#0d3a24; color:#7dffb8; }
+  main { flex:1; position:relative; overflow:hidden; }
+  video { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
+  footer { padding:12px 14px calc(14px + env(safe-area-inset-bottom)); display:grid;
+           grid-template-columns:1fr 1fr 1fr 1.2fr; gap:10px; position:relative; }
+  #mic { position:absolute; right:16px; bottom:calc(160px + env(safe-area-inset-bottom));
+         width:72px; height:72px; border-radius:50%; border:3px solid #1d6a5c;
+         background:#0a2a24; color:#7dffb8; font-size:30px; display:grid; place-items:center;
+         z-index:30; touch-action:none; user-select:none; -webkit-user-select:none;
+         transition:all .15s; cursor:pointer; }
+  #mic.rec { background:#3a1d24; border-color:#ff4444; color:#ff9d9d;
+         box-shadow:0 0 30px rgba(255,68,68,.5), 0 0 60px rgba(255,68,68,.2);
+         transform:scale(1.12); animation:micPulse 1.2s ease-in-out infinite; }
+  @keyframes micPulse {
+    0%, 100% { box-shadow:0 0 20px rgba(255,68,68,.4), 0 0 40px rgba(255,68,68,.15); }
+    50% { box-shadow:0 0 36px rgba(255,68,68,.6), 0 0 72px rgba(255,68,68,.25); } }
+  #mic.rec::after { content:""; position:absolute; inset:-8px; border-radius:50%;
+         border:2px solid rgba(255,68,68,.3); animation:micRing 1.2s ease-out infinite; }
+  @keyframes micRing { 0% { transform:scale(1); opacity:1; } 100% { transform:scale(1.5); opacity:0; } }
+
+  /* Live-Transkript — wie die Galaxy-Legende: leuchtender Text auf Glas */
+  #transcript { position:absolute; right:12px; left:12px;
+         bottom:calc(160px + env(safe-area-inset-bottom));
+         max-height:160px; overflow-y:auto; z-index:25;
+         background:rgba(4,18,15,.85); backdrop-filter:blur(12px);
+         border:1px solid rgba(29,106,92,.4); border-radius:14px;
+         padding:12px 16px; font-size:16px; line-height:1.5;
+         color:#7dffb8; text-shadow:0 0 12px rgba(125,255,184,.4);
+         pointer-events:none; display:none; }
+  #transcript.show { display:block; }
+  #transcript .interim { color:#5fd3a0; opacity:.7; font-style:italic; }
+  #transcript .final { color:#7dffb8; }
+  #transcript .err { color:#ff9d9d; font-style:normal; }
+
+  /* Senden/Verwerfen — erscheinen wenn Text bereit steht */
+  #tsActions { position:absolute; right:12px; left:12px;
+         bottom:calc(96px + env(safe-area-inset-bottom));
+         display:none; justify-content:space-between; gap:12px; z-index:26; }
+  #tsActions.show { display:flex; }
+  #tsActions button { flex:0 0 auto; min-width:110px; padding:12px 20px;
+         border-radius:12px; font-size:16px; font-weight:700;
+         display:flex; align-items:center; justify-content:center; gap:8px; }
+  #tsSend { background:#0d3a24; border:2px solid #2a6; color:#7dffb8; }
+  #tsSend:active { background:#155838; }
+  #tsClear { background:#3a1d24; border:2px solid #a33; color:#ff9d9d; }
+  #tsClear:active { background:#582830; }
+  footer a { display:grid; place-items:center; border:1px solid #1d6a5c; background:#0a2a24;
+             color:#c5f5ea; border-radius:12px; padding:14px 8px; font-size:15px;
+             font-weight:600; text-decoration:none; }
+  button { appearance:none; border:1px solid #1d6a5c; background:#0a2a24; color:#c5f5ea;
+           border-radius:12px; padding:14px 8px; font-size:15px; font-weight:600; }
+  button:active { background:#1d6a5c; }
+  button:disabled { opacity:.4; }
+  #fps { position:absolute; top:10px; left:10px; background:rgba(0,0,0,.6); border-radius:8px;
+         padding:4px 10px; font:12px/1.4 ui-monospace,monospace; color:#8ff0e4; }
+</style>
+</head>
+<body>
+<header><b>HANDCAM</b><span id="dot">verbinde…</span></header>
+<main>
+  <video id="v" autoplay playsinline muted></video>
+  <div id="fps">– fps</div>
+</main>
+<footer>
+  <button id="cam">Kamera<br>wechseln</button>
+  <button id="torch" disabled>Taschenlampe</button>
+  <button id="hq">Qualität<br>640 → 1280</button>
+  <a href="/capture">➕ Notiz</a>
+</footer>
+<div id="transcript"></div>
+<div id="tsActions">
+  <button id="tsClear">✕ Verwerfen</button>
+  <button id="tsSend">✓ Absenden</button>
+</div>
+<div id="mic" title="Halten = sprechen — Commands: menü, suche, schließen, librarian">🎤</div>
+<script>
+const $ = id => document.getElementById(id);
+// Token aus ?token= in sessionStorage übernehmen (für WS und /capture-POST)
+try {
+  const t = new URLSearchParams(location.search).get("token");
+  if (t) sessionStorage.setItem("handcam_token", t);
+} catch (e) {}
+const getToken = () => { try { return sessionStorage.getItem("handcam_token") || ""; } catch (e) { return ""; } };
+{
+  const t = getToken();
+  if (t) document.querySelector('a[href="/capture"]').href = "/capture?token=" + encodeURIComponent(t);
+}
+const v = $("v"), dot = $("dot"), fpsEl = $("fps");
+let ws = null, stream = null, facing = "environment", torchOn = false, hq = false;
+let sent = 0, lastLog = performance.now(), backoff = 500;
+
+function setStatus(ok, text) {
+  dot.className = ok ? "ok" : "";
+  dot.textContent = text;
+}
+
+async function startCamera() {
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  const w = hq ? 1280 : 640, h = hq ? 720 : 480;
+  setStatus(true, "Kamera startet …");
+  // DIAG (2026-09-10): show every failing step instead of hanging silently —
+  // Chromium/Android can grant the stream but never fire loadedmetadata.
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) { setStatus(false, "kein mediaDevices"); throw new Error("no-mediaDevices"); }
+  const waitVideo = async (ms) => {
+    const t0 = performance.now();
+    while (!v.videoWidth && performance.now() - t0 < ms) await new Promise(r => setTimeout(r, 100));
+    return !!v.videoWidth;
+  };
+  try {
+    stream = await md.getUserMedia({
+      video: { facingMode: facing, width: { ideal: w }, height: { ideal: h },
+               frameRate: { ideal: 30 } },
+      audio: false
+    });
+  } catch (e) {
+    setStatus(false, "Kamera: " + ((e && e.name) || "Fehler"));
+    throw e;
+  }
+  v.srcObject = stream;
+  v.play().catch(() => {});
+  if (!await waitVideo(6000)) {
+    // Retry with bare constraints (some devices stall on ideal/facingMode)
+    setStatus(false, "Signal hängt — Neuversuch …");
+    stream.getTracks().forEach(t => t.stop());
+    try { stream = await md.getUserMedia({ video: true, audio: false }); }
+    catch (e2) { setStatus(false, "Kamera (2.): " + ((e2 && e2.name) || "Fehler")); throw e2; }
+    v.srcObject = stream;
+    v.play().catch(() => {});
+    if (!await waitVideo(6000)) { setStatus(false, "Kamerasignal bleibt schwarz"); throw new Error("no-video"); }
+  }
+  // torch capability check (most phones: back camera only)
+  const track = stream.getVideoTracks()[0];
+  const caps = track.getCapabilities ? track.getCapabilities() : {};
+  $("torch").disabled = !caps.torch;
+  torchOn = false;
+  applyTorch();
+}
+
+async function applyTorch() {
+  const track = stream && stream.getVideoTracks()[0];
+  if (!track) return;
+  try { await track.applyConstraints({ advanced: [{ torch: torchOn }] }); }
+  catch (e) { $("torch").disabled = true; }
+}
+
+// JPEG encoder: hidden canvas, quality tuned for ~30-60KB/frame at 640x480
+const c = document.createElement("canvas");
+const ctx = c.getContext("2d");
+
+function connect() {
+  // works behind tailscale serve (/handcam) and directly
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  // /handcam (no slash) must keep its prefix — dirname() logic alone
+  // would strip it and the WS would land on the co-hosted serve app
+  const pn = location.pathname;
+  const prefix = pn.startsWith("/handcam") ? "/handcam"
+               : pn.endsWith("/") ? pn.replace(/[^/]*$/, "") : "";
+  const tok = getToken();
+  const q = "?type=producer" + (tok ? "&token=" + encodeURIComponent(tok) : "");
+  ws = new WebSocket(`${proto}://${location.host}${prefix}/${q}`);
+  ws.binaryType = "arraybuffer";
+  ws.onopen = () => { backoff = 500; setStatus(true, "verbunden"); };
+  ws.onclose = e => {
+    if (e.code === 4001) { setStatus(false, "Token ungültig — ?token=… an die URL hängen"); return; }
+    setStatus(false, e.code === 4000 ? "anderes Phone aktiv" : "getrennt");
+    ws = null;
+    setTimeout(connect, backoff);
+    backoff = Math.min(backoff * 2, 8000);
+  };
+  ws.onerror = () => ws && ws.close();
+}
+
+function sendLoop() {
+  requestAnimationFrame(sendLoop);
+  if (!ws || ws.readyState !== 1 || v.readyState < 2) return;
+  if (v.videoWidth) {
+    c.width = v.videoWidth; c.height = v.videoHeight;
+    ctx.drawImage(v, 0, 0);
+    const jpeg = c.toDataURL("image/jpeg", 0.7).split(",")[1];
+    if (ws.bufferedAmount < 131072) {          // drop instead of lag
+      ws.send(jpeg);                           // string = base64 (ws message)
+      sent++;
+    }
+  }
+  const now = performance.now();
+  if (now - lastLog > 1000) {
+    fpsEl.textContent = `${sent} fps · ${c.width}×${c.height}`;
+    sent = 0; lastLog = now;
+  }
+}
+
+$("cam").onclick = async () => {
+  facing = facing === "environment" ? "user" : "environment";
+  await startCamera();
+};
+$("torch").onclick = async () => { torchOn = !torchOn; await applyTorch(); };
+$("hq").onclick = async () => {
+  hq = !hq;
+  $("hq").innerHTML = hq ? "Qualität<br>1280 → 640" : "Qualität<br>640 → 1280";
+  await startCamera();
+};
+
+// ---- MIKROFON: halten = aufnehmen + transkribieren, loslassen = an Galaxy ----
+// Commands („menü", „suche", „schließen", „librarian …") wertet die Galaxy aus;
+// alles andere ist Diktat → fokussiertes Element + Zwischenablage.
+//
+// Spracherkennung: Android-Chrome SpeechRecognition = Googles Server-Engine
+// (wie Google Assistant / Gboard-Diktat). Liefert INTERIM-Ergebnisse die
+// laufend korrigiert werden (falsche Wörter werden von besseren Hypothesen
+// ersetzt, bis das Segment final ist) — genau die Selbstkorrektur, die wir
+// brauchen. Der Live-Text unten zeigt das in Echtzeit.
+const mic = $("mic");
+const ts = $("transcript");
+let recog = null, micActive = false, micFinal = "";
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+function tsShow(html) { ts.innerHTML = html; ts.classList.add("show"); }
+function tsHide() { ts.classList.remove('show'); ts.innerHTML = ''; }
+
+function micUpdate(fin, interim) {
+  let html = '';
+  if (fin) html += '<span class="final">' + fin + '</span> ';
+  if (interim) html += '<span class="interim">' + interim + '</span>';
+  if (!html) html = '<span class="interim">… sprich</span>';
+  tsShow(html);
+  ts.scrollTop = ts.scrollHeight;
+}
+
+mic.addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  if (micActive) return;
+  if (!SR) {
+    tsShow('<span class="err">⚠ Kein SpeechRecognition — Chrome/Android nötig (HTTPS)</span>');
+    setTimeout(tsHide, 3000);
+    return;
+  }
+  micActive = true; micFinal = "";
+  mic.classList.add("rec");
+  mic.textContent = "⏺";
+  tsShow('<span class="interim">… Mikrofon startet</span>');
+  navigator.vibrate?.(30);
+
+  recog = new SR();
+  recog.lang = "de-DE";
+  recog.continuous = true;
+  recog.interimResults = true;
+  recog.maxAlternatives = 1;
+
+  recog.onresult = (ev) => {
+    let fin = "", interim = "";
+    for (let i = ev.resultIndex; i < ev.results.length; i++) {
+      const r = ev.results[i];
+      if (r.isFinal) fin += r[0].transcript; else interim += r[0].transcript;
+    }
+    if (fin) micFinal = (micFinal + " " + fin).trim();
+    micUpdate(micFinal, interim);
+  };
+  recog.onstart = () => micUpdate(micFinal, "");
+  recog.onaudiostart = () => micUpdate(micFinal, "");
+  recog.onerror = (ev) => {
+    const errs = {
+      'not-allowed': '⚠ Mikrofon verweigert — Browser-Einstellungen → Berechtigungen → Mikrofon erlauben',
+      'service-not-allowed': '⚠ Dienst verweigert — Seite neu laden',
+      'network': '⚠ Netzwerkfehler — Internet nötig für Spracherkennung',
+      'no-speech': '… kein Sprachsignal',
+      'aborted': '',
+    };
+    const m = errs[ev.error] || ('⚠ ' + ev.error);
+    if (m) tsShow('<span class="err">' + m + '</span>');
+  };
+  recog.onend = () => {
+    if (micActive) { try { recog.start(); } catch {} }
+  };
+  try { recog.start(); } catch (err) {
+    tsShow('<span class="err">⚠ Start fehlgeschlagen: ' + err.message + '</span>');
+  }
+});
+
+const tsActions = document.getElementById("tsActions");
+const tsSend = document.getElementById("tsSend");
+const tsClear = document.getElementById("tsClear");
+let pendingText = "";
+
+const micRelease = () => {
+  if (!micActive) return;
+  micActive = false;
+  mic.classList.remove("rec");
+  mic.textContent = "🎤";
+  const text = micFinal.trim();
+  try { recog?.stop(); } catch {}
+  if (text) {
+    pendingText = text;
+    // Text bleibt stehen — Haken = senden, Kreuz = verwerfen
+    tsShow('<span class="final">' + text + '</span>');
+    tsActions.classList.add("show");
+    tsSend.textContent = "✓ " + (text.length > 18 ? text.slice(0, 18) + "…" : text);
+  } else {
+    pendingText = "";
+    tsHide();
+    tsActions.classList.remove("show");
+  }
+};
+
+tsSend.addEventListener("click", () => {
+  if (!pendingText) return;
+  if (ws && ws.readyState === 1) {
+    ws.send(JSON.stringify({ voice: pendingText }));
+    navigator.vibrate?.(50);
+  }
+  pendingText = "";
+  tsHide();
+  tsActions.classList.remove("show");
+});
+
+tsClear.addEventListener("click", () => {
+  pendingText = "";
+  micFinal = "";
+  tsHide();
+  tsActions.classList.remove("show");
+  navigator.vibrate?.(30);
+});
+mic.addEventListener("pointerup", micRelease);
+mic.addEventListener("pointerleave", micRelease);
+mic.addEventListener("pointercancel", micRelease);
+
+// Bildschirm wachhalten (Wake Lock) — sonst friert Android den Tab ein
+// und die Kamera/der Stream sterben bei Display-Off/Tab-Wechsel.
+// NOTE (2026-09-10): plain JS only — this is a browser <script>, TS syntax
+// (`: any`, `as any`) is a SyntaxError that kills the WHOLE page silently.
+let wakeLock = null;
+async function keepAwake() {
+  try {
+    const wl = navigator.wakeLock;
+    wakeLock = await (wl && wl.request ? wl.request('screen') : null);
+    if (wakeLock && wakeLock.addEventListener)
+      wakeLock.addEventListener('release', () => { wakeLock = null; });
+  } catch (e) { /* nicht unterstützt */ }
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') { keepAwake(); connect(); }
+});
+
+(async () => {
+  try { await startCamera(); }
+  catch (e) { setStatus(false, "Kamera: " + ((e && e.name) || "Fehler")); return; }
+  keepAwake();
+  connect();
+  sendLoop();
+})();
+</script>
+</body>
+</html>

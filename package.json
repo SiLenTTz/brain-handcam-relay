@@ -1,0 +1,36 @@
+{
+  "name": "brain-handcam-relay",
+  "version": "1.0.0",
+  "description": "Phone-as-camera relay for brain-galaxy \u2014 camera streaming, hand gesture commands, voice input and note capture from your phone",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "keywords": [
+    "handcam",
+    "relay",
+    "webcam",
+    "phone-camera",
+    "gestures",
+    "hand-tracking",
+    "brain-galaxy"
+  ],
+  "author": "",
+  "license": "MIT",
+  "type": "commonjs",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SiLenTTz/brain-handcam-relay.git"
+  },
+  "bugs": {
+    "url": "https://github.com/SiLenTTz/brain-handcam-relay/issues"
+  },
+  "homepage": "https://github.com/SiLenTTz/brain-handcam-relay#readme",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "ws": "^8.21.3"
+  }
+}
